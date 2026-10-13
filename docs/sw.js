@@ -1,8 +1,8 @@
 // Service worker: makes the app installable and usable offline.
-//  - the app's own files are served from cache (updated when VERSION changes)
+//  - the app's own files come from the network, with a cached copy for offline
 //  - readings and verses come from the network, falling back to the last
 //    cached copy when offline
-const VERSION = "biblefnd-v2";
+const VERSION = "biblefnd-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -33,8 +33,19 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
 
   if (url.origin === self.location.origin) {
-    // app shell: cache first
-    event.respondWith(caches.match(req, { ignoreSearch: true }).then((hit) => hit || fetch(req)));
+    // app's own files: network first so updates show up immediately,
+    // cached copy only when offline
+    event.respondWith(
+      fetch(req)
+        .then((resp) => {
+          if (resp.ok) {
+            const copy = resp.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy));
+          }
+          return resp;
+        })
+        .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || Promise.reject(new Error("offline"))))
+    );
     return;
   }
 
