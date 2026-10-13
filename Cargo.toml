@@ -2,11 +2,11 @@
 name = "biblefnd"
 version = "0.1.0"
 edition = "2021"
-description = "Look up King James Version Bible verses from the terminal"
+description = "Bible look-up and daily Catholic Mass readings from the terminal"
 
 [dependencies]
 ureq = { version = "2", features = ["json"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [profile.release]

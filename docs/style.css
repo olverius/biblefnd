@@ -207,6 +207,35 @@ main {
   line-height: 0;
 }
 
+.reading-heading {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--muted);
+  margin: -4px 0 10px;
+}
+
+.lectionary {
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.65;
+}
+
+.lectionary p { margin: 0 0 0.8em; }
+.lectionary p:last-child { margin-bottom: 0; }
+.lectionary i, .lectionary em { color: var(--accent); }
+
+.credit {
+  margin-top: 36px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.credit:empty { display: none; }
+.credit p { margin: 0 0 6px; }
+
 .note {
   font-size: 14px;
   color: var(--muted);

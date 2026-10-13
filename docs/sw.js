@@ -2,7 +2,7 @@
 //  - the app's own files come from the network, with a cached copy for offline
 //  - readings and verses come from the network, falling back to the last
 //    cached copy when offline
-const VERSION = "biblefnd-v3";
+const VERSION = "biblefnd-v4";
 const SHELL = [
   "./",
   "./index.html",

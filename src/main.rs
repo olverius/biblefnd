@@ -1,16 +1,16 @@
-//! biblefnd — look up King James Version passages from the terminal.
+//! biblefnd — Bible verses and the day's Mass readings from the terminal.
 //!
-//!   biblefnd luke 3:15        a specific verse
-//!   biblefnd john 3:16-18     a range
-//!   biblefnd psalm 23         a whole chapter
-//!   biblefnd random           a random verse
-//!   biblefnd today            today's Mass readings (first reading, psalm,
-//!                             second reading on Sundays/feasts, Gospel)
-//!   biblefnd verse            a single verse of the day
+//!   biblefnd luke 3:15        a specific verse (KJV)
+//!   biblefnd john 3:16-18     a range (KJV)
+//!   biblefnd psalm 23         a whole chapter (KJV)
+//!   biblefnd random           a random verse (KJV)
+//!   biblefnd verse            a single verse of the day (KJV)
+//!   biblefnd today            today's Mass readings (Danish calendar)
+//!   biblefnd today 2026-12-25 the readings for another date
 //!
-//! Verse text comes from bible-api.com (KJV, public domain).
-//! The day's reading references come from universalis.com; only the
-//! references are used, the text itself is always fetched in KJV.
+//! Verse look-ups use bible-api.com (King James Version, public domain).
+//! The Mass readings come from Universalis: the English Catholic lectionary
+//! text (Jerusalem Bible, Grail psalms) with its copyright notice.
 
 use serde_json::Value;
 use std::io::IsTerminal;
@@ -19,18 +19,10 @@ use std::process::ExitCode;
 const BIBLE_API: &str = "https://bible-api.com";
 const VERSE_OF_DAY_API: &str = "https://beta.ourmanna.com/api/v1/get?format=json&order=daily";
 
-/// (JSON key in the Universalis response, label to print)
-const READINGS: [(&str, &str); 4] = [
-    ("Mass_R1", "First Reading"),
-    ("Mass_Ps", "Responsorial Psalm"),
-    ("Mass_R2", "Second Reading"),
-    ("Mass_G", "Gospel"),
-];
+/// Universalis calendar: Denmark, so Danish feasts (e.g. St Ansgar) are included.
+const UNIVERSALIS_REGION: &str = "europe.denmark";
 
-/// Books in the Catholic canon that the KJV text on bible-api.com doesn't have.
-const NOT_IN_KJV: [&str; 7] = ["Tobit", "Judith", "Wisdom", "Sirach", "Ecclesiasticus", "Baruch", "Maccabees"];
-
-/// A passage ready to print.
+/// A KJV passage ready to print.
 struct Passage {
     reference: String,
     /// (verse number, text). Single-verse lookups have one entry.
@@ -45,7 +37,8 @@ fn main() -> ExitCode {
             print_help();
             Ok(())
         }
-        Some("today") if args.len() == 1 => show_todays_readings(),
+        Some("today") if args.len() == 1 => show_readings(&chrono::Local::now().format("%Y%m%d").to_string()),
+        Some("today") if args.len() == 2 => parse_date(&args[1]).and_then(|d| show_readings(&d)),
         Some("random") if args.len() == 1 => fetch_random().map(|p| print_passage(&p)),
         Some("verse") if args.len() == 1 => fetch_verse_of_day().map(|p| print_passage(&p)),
         _ => fetch_reference(&args.join(" ")).map(|p| print_passage(&p)),
@@ -62,24 +55,32 @@ fn main() -> ExitCode {
 
 fn print_help() {
     println!(
-        "biblefnd — King James Version lookup
+        "biblefnd — Bible look-up and daily Mass readings
 
 USAGE:
-    biblefnd <book> <chapter>:<verse>   e.g. biblefnd luke 3:15
-    biblefnd <book> <chapter>:<a>-<b>   e.g. biblefnd john 3:16-18
-    biblefnd <book> <chapter>           e.g. biblefnd psalm 23
-    biblefnd today                      today's Mass readings and Gospel
-    biblefnd random                     a random verse
-    biblefnd verse                      a single verse of the day"
+    biblefnd today                      today's Mass readings (Danish calendar)
+    biblefnd today <YYYY-MM-DD>         the readings for another date
+    biblefnd <book> <chapter>:<verse>   e.g. biblefnd luke 3:15      (KJV)
+    biblefnd <book> <chapter>:<a>-<b>   e.g. biblefnd john 3:16-18   (KJV)
+    biblefnd <book> <chapter>           e.g. biblefnd psalm 23       (KJV)
+    biblefnd random                     a random verse               (KJV)
+    biblefnd verse                      a single verse of the day    (KJV)"
     );
+}
+
+/// "2026-12-25" -> "20261225"
+fn parse_date(s: &str) -> Result<String, String> {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map(|d| d.format("%Y%m%d").to_string())
+        .map_err(|_| format!("'{s}' isn't a date — use YYYY-MM-DD, e.g. 2026-12-25"))
 }
 
 // ---------------------------------------------------------------- fetching
 
 fn get_text(url: &str) -> Result<String, String> {
     match ureq::get(url)
-        .set("User-Agent", "biblefnd/0.2")
-        .timeout(std::time::Duration::from_secs(10))
+        .set("User-Agent", "biblefnd/0.3")
+        .timeout(std::time::Duration::from_secs(15))
         .call()
     {
         Ok(resp) => resp.into_string().map_err(|e| format!("could not read response: {e}")),
@@ -95,7 +96,7 @@ fn get_json(url: &str) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|e| format!("could not parse response: {e}"))
 }
 
-/// `luke 3:15`, `1 john 4:8`, `john 3:16-18`, `psalm 23`, `phil 4:12-14,19-20`
+/// `luke 3:15`, `1 john 4:8`, `john 3:16-18`, `psalm 23`
 fn fetch_reference(reference: &str) -> Result<Passage, String> {
     let reference = reference.trim();
     if reference.is_empty() {
@@ -146,9 +147,9 @@ fn fetch_verse_of_day() -> Result<Passage, String> {
     fetch_reference(reference)
 }
 
-fn show_todays_readings() -> Result<(), String> {
-    let date = chrono::Local::now().format("%Y%m%d");
-    let body = get_text(&format!("https://universalis.com/{date}/jsonpmass.js"))?;
+/// Print the Mass readings for a date given as YYYYMMDD.
+fn show_readings(ymd: &str) -> Result<(), String> {
+    let body = get_text(&format!("https://universalis.com/{UNIVERSALIS_REGION}/{ymd}/jsonpmass.js"))?;
 
     // The response is JSONP: universalisCallback({...});
     let (start, end) = (body.find('{'), body.rfind('}'));
@@ -157,68 +158,192 @@ fn show_todays_readings() -> Result<(), String> {
             .map_err(|e| format!("could not parse readings: {e}"))?,
         _ => return Err("unexpected response from universalis.com".into()),
     };
+    let Some(obj) = json.as_object() else {
+        return Err("unexpected response from universalis.com".into());
+    };
 
-    let (bold, dim, reset) = styles();
-    let date_str = json["date"].as_str().unwrap_or("");
-    let day = strip_html(json["day"].as_str().unwrap_or(""));
-    println!("{bold}{day}{reset}");
-    println!("{dim}{date_str}{reset}");
+    let st = Styles::new();
 
-    for (key, label) in READINGS {
-        let Some(source) = json[key]["source"].as_str() else {
-            continue; // e.g. no second reading on weekdays
-        };
-        let reference = normalize_reference(source);
-        println!();
-        println!("{bold}── {label} ──{reset}");
-
-        match fetch_reference(&reference) {
-            Ok(p) => print_passage(&p),
-            Err(e) => {
-                println!("{bold}{reference}{reset}");
-                if NOT_IN_KJV.iter().any(|b| reference.contains(b)) {
-                    println!("{dim}(this book isn't in the King James Version){reset}");
-                } else {
-                    println!("{dim}(couldn't fetch the KJV text: {e}){reset}");
-                }
-            }
-        }
+    // "Friday of week 27 ... or Saint Denis ... or Saint John Leonardi ..."
+    let day = html_to_plain(json["day"].as_str().unwrap_or(""), &st).replace('\n', " ");
+    let day = clean(&day);
+    let (main, optional) = split_day_title(&day);
+    println!("{}{}{}", st.bold, main, st.reset);
+    if !optional.is_empty() {
+        let s = if optional.len() > 1 { "s" } else { "" };
+        println!("{}Optional memorial{s}: {}{}", st.dim, optional.join("; "), st.reset);
     }
+    println!("{}{}{}", st.dim, json["date"].as_str().unwrap_or(""), st.reset);
+
+    // Readings in the order Universalis sends them (serde_json "preserve_order").
+    let mut found = false;
+    for (key, reading) in obj.iter().filter(|(k, _)| k.starts_with("Mass_")) {
+        let text = reading["text"].as_str().unwrap_or("");
+        let source = reading["source"].as_str().unwrap_or("");
+        if text.is_empty() && source.is_empty() {
+            continue;
+        }
+        found = true;
+        println!();
+        println!("{}── {} ──{}", st.bold, label_for(key), st.reset);
+        let source = spaced_source(&clean(&html_to_plain(source, &Styles::plain())));
+        if !source.is_empty() {
+            println!("{}{}{}", st.bold, source, st.reset);
+        }
+        let heading = clean(&html_to_plain(reading["heading"].as_str().unwrap_or(""), &Styles::plain()));
+        if !heading.is_empty() {
+            println!("{}{}{}", st.italic, heading, st.italic_off);
+        }
+        println!();
+        println!("{}", html_to_plain(text, &st));
+    }
+    if !found {
+        println!("\nNo readings were found for this day.");
+    }
+
+    // Universalis' terms: show their copyright notice and point to them.
+    let copyright = clean(&html_to_plain(json["copyright"].as_str().unwrap_or(""), &Styles::plain()));
+    println!();
+    if !copyright.is_empty() {
+        println!("{}{}{}", st.dim, copyright, st.reset);
+    }
+    println!("{}Readings provided by Universalis — https://universalis.com{}", st.dim, st.reset);
     Ok(())
 }
 
 // ---------------------------------------------------------------- helpers
 
-/// Turn a Universalis reference into one bible-api.com understands:
-///   "Psalm 110(111):1‐6"        -> "Psalm 111:1-6"   (Hebrew/KJV psalm numbering)
-///   "Isaiah 55:10‐11a"          -> "Isaiah 55:10-11" (no half-verse letters)
-///   "Philippians 4:12‐14,19‐20" -> "Philippians 4:12-14,19-20"
-fn normalize_reference(src: &str) -> String {
-    // Universalis sends the dash as an HTML entity ("&#x2010;"), so decode first.
-    let decoded = decode_entities(src);
-    let src = decoded.trim();
-    let Some((book, nums)) = src.rsplit_once(char::is_whitespace) else {
-        return src.to_string();
-    };
+struct Styles {
+    bold: &'static str,
+    dim: &'static str,
+    italic: &'static str,
+    italic_off: &'static str,
+    reset: &'static str,
+}
 
-    let mut nums: String = nums
-        .chars()
-        .map(|c| match c {
-            '\u{2010}'..='\u{2015}' => '-',
-            c => c,
-        })
-        .collect();
-
-    // "110(111):1-6" -> "111:1-6": Universalis gives the Greek number first and
-    // the Hebrew one (used by the KJV) in brackets.
-    if let (Some(open), Some(close)) = (nums.find('('), nums.find(')')) {
-        if open < close {
-            nums = format!("{}{}", &nums[open + 1..close], &nums[close + 1..]);
+impl Styles {
+    fn new() -> Self {
+        if std::io::stdout().is_terminal() {
+            Styles { bold: "\x1b[1m", dim: "\x1b[2m", italic: "\x1b[3m", italic_off: "\x1b[23m", reset: "\x1b[0m" }
+        } else {
+            Self::plain()
         }
     }
+    fn plain() -> Self {
+        Styles { bold: "", dim: "", italic: "", italic_off: "", reset: "" }
+    }
+}
 
-    let nums: String = nums.chars().filter(|c| !c.is_ascii_alphabetic()).collect();
-    format!("{} {}", book.trim(), nums)
+fn label_for(key: &str) -> String {
+    let k = key.trim_start_matches("Mass_");
+    match k {
+        "R1" => "First Reading".into(),
+        "Ps" => "Responsorial Psalm".into(),
+        "R2" => "Second Reading".into(),
+        "GA" => "Gospel Acclamation".into(),
+        "G" => "Gospel".into(),
+        _ if k.starts_with("GA") => "Gospel Acclamation".into(),
+        _ if k.starts_with("Ps") => "Psalm".into(),
+        _ if k.starts_with('R') => format!("Reading {}", &k[1..]),
+        _ if k.starts_with('G') => "Gospel".into(),
+        _ => k.to_string(),
+    }
+}
+
+/// "Friday of week 27 or Saint Denis or Saint John" -> ("Friday of week 27", ["Saint Denis", "Saint John"])
+fn split_day_title(day: &str) -> (String, Vec<String>) {
+    const STARTS: [&str; 5] = ["Saint", "Saints", "Blessed", "Our Lady", "The "];
+    let mut parts = Vec::new();
+    let mut last = 0;
+    for (i, _) in day.match_indices(" or ") {
+        if STARTS.iter().any(|s| day[i + 4..].starts_with(s)) {
+            parts.push(day[last..i].to_string());
+            last = i + 4;
+        }
+    }
+    parts.push(day[last..].to_string());
+    let mut it = parts.into_iter();
+    let main = it.next().unwrap_or_default();
+    (main, it.collect())
+}
+
+/// "Heb4:12" -> "Heb 4:12"
+fn spaced_source(s: &str) -> String {
+    let bytes: Vec<char> = s.chars().collect();
+    for i in 1..bytes.len() {
+        if bytes[i].is_ascii_digit() && bytes[i - 1].is_alphabetic() && !s.contains(' ') {
+            let (a, b) = s.split_at(s.char_indices().nth(i).map(|(p, _)| p).unwrap_or(0));
+            return format!("{a} {b}");
+        }
+    }
+    s.to_string()
+}
+
+/// Convert the Universalis text (HTML, or plain text with *italic* markers)
+/// into terminal text: paragraphs separated by a blank line, <br> as line
+/// breaks, italics as ANSI italics when printing to a terminal.
+fn html_to_plain(s: &str, st: &Styles) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if c == '<' {
+            if let Some(end) = s[i..].find('>') {
+                let tag = s[i + 1..i + end].trim().to_ascii_lowercase();
+                let name: String = tag
+                    .trim_start_matches('/')
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric())
+                    .collect();
+                let closing = tag.starts_with('/');
+                match name.as_str() {
+                    "br" => out.push('\n'),
+                    "p" | "div" | "blockquote" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" => out.push_str("\n\n"),
+                    "i" | "em" => out.push_str(if closing { st.italic_off } else { st.italic }),
+                    _ => {}
+                }
+                // skip to the end of the tag
+                while let Some(&(j, _)) = chars.peek() {
+                    if j > i + end {
+                        break;
+                    }
+                    chars.next();
+                }
+                continue;
+            }
+        }
+        out.push(c);
+    }
+
+    let out = decode_entities(&out);
+
+    // plain-text feeds mark the psalm response as *text*
+    let mut styled = String::with_capacity(out.len());
+    let mut open = false;
+    for c in out.chars() {
+        if c == '*' {
+            styled.push_str(if open { st.italic_off } else { st.italic });
+            open = !open;
+        } else {
+            styled.push(c);
+        }
+    }
+    if open {
+        styled.push_str(st.italic_off);
+    }
+
+    // tidy whitespace: trim each line, at most one blank line in a row
+    let mut lines: Vec<String> = Vec::new();
+    for line in styled.lines() {
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if line.is_empty() && lines.last().is_none_or(|l| l.is_empty()) {
+            continue;
+        }
+        lines.push(line);
+    }
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    lines.join("\n")
 }
 
 /// Percent-encode a reference for the URL path; spaces become '+'.
@@ -237,21 +362,6 @@ fn encode_path(s: &str) -> String {
 /// The API text contains stray line breaks; collapse all whitespace runs.
 fn clean(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Drop tags and decode the few entities Universalis uses in its titles.
-fn strip_html(s: &str) -> String {
-    let mut out = String::new();
-    let mut in_tag = false;
-    for c in s.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            c if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    clean(&decode_entities(&out))
 }
 
 /// Decode HTML entities: numeric (`&#8208;`, `&#x2010;`) and the common named ones.
@@ -275,10 +385,14 @@ fn decode_entities(s: &str) -> String {
                     match name {
                         "nbsp" => Some(' '),
                         "amp" => Some('&'),
+                        "lt" => Some('<'),
+                        "gt" => Some('>'),
                         "quot" => Some('"'),
                         "apos" | "rsquo" | "lsquo" => Some('\''),
+                        "ldquo" | "rdquo" => Some('"'),
                         "ndash" => Some('\u{2013}'),
                         "mdash" => Some('\u{2014}'),
+                        "copy" => Some('©'),
                         _ => None,
                     }
                 };
@@ -299,22 +413,14 @@ fn decode_entities(s: &str) -> String {
     out
 }
 
-fn styles() -> (&'static str, &'static str, &'static str) {
-    if std::io::stdout().is_terminal() {
-        ("\x1b[1m", "\x1b[2m", "\x1b[0m")
-    } else {
-        ("", "", "")
-    }
-}
-
 fn print_passage(p: &Passage) {
-    let (bold, dim, reset) = styles();
-    println!("{bold}{} (KJV){reset}", p.reference);
+    let st = Styles::new();
+    println!("{}{} (KJV){}", st.bold, p.reference, st.reset);
     if p.verses.len() == 1 {
         println!("{}", p.verses[0].1);
     } else {
         for (n, text) in &p.verses {
-            println!("{dim}{n:>3}{reset} {text}");
+            println!("{}{n:>3}{} {text}", st.dim, st.reset);
         }
     }
 }
@@ -327,28 +433,7 @@ mod tests {
     fn encodes_references() {
         assert_eq!(encode_path("luke 3:15"), "luke+3:15");
         assert_eq!(encode_path("1 john 4:8"), "1+john+4:8");
-        assert_eq!(encode_path("john 3:16-18"), "john+3:16-18");
         assert_eq!(encode_path("song of solomon 2:1"), "song+of+solomon+2:1");
-    }
-
-    #[test]
-    fn cleans_whitespace() {
-        assert_eq!(clean("shall be\nof fine flour;\n"), "shall be of fine flour;");
-    }
-
-    #[test]
-    fn normalizes_universalis_references() {
-        assert_eq!(normalize_reference("Galatians 3:7\u{2010}14"), "Galatians 3:7-14");
-        assert_eq!(normalize_reference("Psalm 110(111):1\u{2010}6"), "Psalm 111:1-6");
-        assert_eq!(normalize_reference("Psalm 22(23)"), "Psalm 23");
-        assert_eq!(normalize_reference("Philippians 4:12\u{2010}14,19\u{2010}20"), "Philippians 4:12-14,19-20");
-        assert_eq!(normalize_reference("Isaiah 55:10\u{2010}11a"), "Isaiah 55:10-11");
-        assert_eq!(normalize_reference("1 John 4:7\u{2010}10"), "1 John 4:7-10");
-        // what Universalis actually sends
-        assert_eq!(normalize_reference("Galatians 3:7&#x2010;14"), "Galatians 3:7-14");
-        assert_eq!(normalize_reference("Psalm 110(111):1&#x2010;6"), "Psalm 111:1-6");
-        assert_eq!(normalize_reference("Luke 11:15&#8208;26"), "Luke 11:15-26");
-        assert_eq!(normalize_reference("Mark 1:7&ndash;11"), "Mark 1:7-11");
     }
 
     #[test]
@@ -357,14 +442,47 @@ mod tests {
         assert_eq!(decode_entities("a&#8208;b"), "a\u{2010}b");
         assert_eq!(decode_entities("Tom &amp; Jerry"), "Tom & Jerry");
         assert_eq!(decode_entities("R&D; fine"), "R&D; fine");
-        assert_eq!(decode_entities("lone & sign"), "lone & sign");
     }
 
     #[test]
-    fn strips_html_titles() {
+    fn converts_html_readings() {
+        let p = Styles::plain();
         assert_eq!(
-            strip_html("<h4>28th Sunday in Ordinary Time</h4>&nbsp;"),
-            "28th Sunday in Ordinary Time"
+            html_to_plain("<div><p>First para.</p><p>Line one,<br>line two.</p></div>", &p),
+            "First para.\n\nLine one,\nline two."
         );
+        assert_eq!(html_to_plain("<h4>Sunday</h4>&#160;", &p), "Sunday");
+        assert_eq!(html_to_plain("<p><i>Response.</i></p>", &p), "Response.");
+    }
+
+    #[test]
+    fn converts_plain_readings() {
+        let p = Styles::plain();
+        assert_eq!(
+            html_to_plain("\n\n*Response.*\nLine one,\nline two.\n\n\n\nNext.", &p),
+            "Response.\nLine one,\nline two.\n\nNext."
+        );
+        let it = Styles { bold: "", dim: "", italic: "[", italic_off: "]", reset: "" };
+        assert_eq!(html_to_plain("*Response.*", &it), "[Response.]");
+        assert_eq!(html_to_plain("<i>Response.</i>", &it), "[Response.]");
+    }
+
+    #[test]
+    fn splits_day_title() {
+        let (main, alt) = split_day_title("Friday of week 27 in Ordinary Time or Saints Denis and Companions or Saint John Leonardi");
+        assert_eq!(main, "Friday of week 27 in Ordinary Time");
+        assert_eq!(alt, vec!["Saints Denis and Companions", "Saint John Leonardi"]);
+        let (main, alt) = split_day_title("28th Sunday in Ordinary Time");
+        assert_eq!(main, "28th Sunday in Ordinary Time");
+        assert!(alt.is_empty());
+    }
+
+    #[test]
+    fn labels_and_sources() {
+        assert_eq!(label_for("Mass_R1"), "First Reading");
+        assert_eq!(label_for("Mass_GA"), "Gospel Acclamation");
+        assert_eq!(label_for("Mass_R3"), "Reading 3");
+        assert_eq!(spaced_source("Heb4:12"), "Heb 4:12");
+        assert_eq!(spaced_source("Luke 11:37-41"), "Luke 11:37-41");
     }
 }

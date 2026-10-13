@@ -1,20 +1,24 @@
-// biblefnd web app — same features as the CLI:
-//   Today   : the day's Mass readings (references from Universalis, text in KJV)
-//   Look up : any reference, e.g. "luke 3:15", "john 3:16-18", "psalm 23"
+// biblefnd web app
+//   Today   : the day's Mass readings for Denmark, in the English Catholic
+//             lectionary text (Jerusalem Bible + Grail psalms) from Universalis
+//   Look up : any reference in the King James Version, e.g. "luke 3:15"
 //   Random  : a random KJV verse
 "use strict";
 
 const BIBLE_API = "https://bible-api.com";
 
-const READINGS = [
-  ["Mass_R1", "First Reading"],
-  ["Mass_Ps", "Responsorial Psalm"],
-  ["Mass_R2", "Second Reading"],
-  ["Mass_G", "Gospel"],
-];
+// Universalis calendar: Denmark, so Danish feasts (e.g. St Ansgar) are included.
+const UNIVERSALIS_REGION = "europe.denmark";
 
-// Catholic-canon books the KJV text on bible-api.com doesn't have.
-const NOT_IN_KJV = ["Tobit", "Judith", "Wisdom", "Sirach", "Ecclesiasticus", "Baruch", "Maccabees"];
+// Labels for the readings Universalis sends. Anything not listed gets a
+// label derived from its key, so special days (Easter Vigil etc.) still show.
+const LABELS = {
+  Mass_R1: "First Reading",
+  Mass_Ps: "Responsorial Psalm",
+  Mass_R2: "Second Reading",
+  Mass_GA: "Gospel Acclamation",
+  Mass_G: "Gospel",
+};
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -22,26 +26,8 @@ const $ = (sel) => document.querySelector(sel);
 
 /** Decode HTML entities and strip tags, e.g. "<h4>Sunday</h4>&#x2010;" -> "Sunday‐" */
 function htmlToText(s) {
-  const doc = new DOMParser().parseFromString(s, "text/html");
+  const doc = new DOMParser().parseFromString(s || "", "text/html");
   return (doc.body.textContent || "").replace(/\s+/g, " ").trim();
-}
-
-/**
- * Turn a Universalis reference into one bible-api.com understands:
- *   "Psalm 110(111):1&#x2010;6"   -> "Psalm 111:1-6"   (KJV psalm numbering)
- *   "Isaiah 55:10‐11a"            -> "Isaiah 55:10-11" (no half-verse letters)
- *   "Philippians 4:12‐14,19‐20"   -> "Philippians 4:12-14,19-20"
- */
-function normalizeReference(src) {
-  const s = htmlToText(src);
-  const i = s.lastIndexOf(" ");
-  if (i < 0) return s;
-  const book = s.slice(0, i).trim();
-  let nums = s.slice(i + 1).replace(/[‐-―]/g, "-");
-  // "110(111):1-6" -> "111:1-6": Greek number first, Hebrew/KJV in brackets
-  nums = nums.replace(/^\d+\((\d+)\)/, "$1");
-  nums = nums.replace(/[A-Za-z]/g, "");
-  return `${book} ${nums}`;
 }
 
 /** The API text has stray line breaks inside verses. */
@@ -69,6 +55,81 @@ function skeleton() {
   const f = document.createDocumentFragment();
   f.append(el("div", { class: "skeleton short" }), el("div", { class: "skeleton" }), el("div", { class: "skeleton" }));
   return f;
+}
+
+/** "Mass_R3" -> "Reading 3", "Mass_Ps2" -> "Psalm" — fallback labels */
+function labelFor(key) {
+  if (LABELS[key]) return LABELS[key];
+  const k = key.replace(/^Mass_/, "");
+  if (/^R\d+/.test(k)) return `Reading ${k.slice(1)}`;
+  if (/^Ps/.test(k)) return "Psalm";
+  if (/^GA/.test(k)) return "Gospel Acclamation";
+  if (/^G/.test(k)) return "Gospel";
+  return k;
+}
+
+// Inline formatting allowed through from the Universalis text; everything
+// else is reduced to its text. Attributes are always dropped.
+const INLINE = new Set(["I", "EM", "B", "STRONG", "SUP", "SUB", "SMALL", "U"]);
+const BLOCK = new Set(["P", "DIV", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "LI"]);
+
+/**
+ * Turn a Universalis reading text into safe DOM nodes.
+ * Handles both HTML (<p>, <br>, <i>…) and plain text with blank-line
+ * paragraphs and *italic* markers (used for the psalm response).
+ */
+function readingBody(text) {
+  const box = el("div", { class: "lectionary" });
+  const src = (text || "").trim();
+
+  if (/<[a-z][\s\S]*>/i.test(src)) {
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    let para = null;
+    const newPara = () => { para = el("p"); box.append(para); return para; };
+
+    const walk = (node, into) => {
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          if (child.textContent.trim() || (into !== box && child.textContent)) {
+            (into === box ? (para || newPara()) : into).append(child.textContent);
+          }
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          const tag = child.tagName;
+          if (tag === "BR") {
+            (into === box ? (para || newPara()) : into).append(el("br"));
+          } else if (BLOCK.has(tag) && into === box) {
+            para = null;
+            walk(child, box);
+            para = null;
+          } else if (INLINE.has(tag)) {
+            const wrap = el(tag.toLowerCase());
+            (into === box ? (para || newPara()) : into).append(wrap);
+            walk(child, wrap);
+          } else if (tag !== "SCRIPT" && tag !== "STYLE") {
+            walk(child, into);
+          }
+        }
+      }
+    };
+    walk(doc.body, box);
+    // drop empty paragraphs
+    for (const p of box.querySelectorAll("p")) if (!p.textContent.trim()) p.remove();
+  } else {
+    for (const block of src.split(/\n\s*\n/)) {
+      if (!block.trim()) continue;
+      const p = el("p");
+      block.trim().split("\n").forEach((line, i) => {
+        if (i) p.append(el("br"));
+        // *response* -> <i>response</i>
+        line.split(/(\*[^*]+\*)/).forEach((part) => {
+          if (/^\*[^*]+\*$/.test(part)) p.append(el("i", {}, part.slice(1, -1)));
+          else if (part) p.append(part);
+        });
+      });
+      box.append(p);
+    }
+  }
+  return box;
 }
 
 // ------------------------------------------------------------------ fetching
@@ -112,6 +173,7 @@ function loadUniversalis(ymd, attempt) {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
     let finished = false;
+    let afterLoad;
     const finish = (fn, arg) => {
       if (finished) return;
       finished = true;
@@ -121,7 +183,6 @@ function loadUniversalis(ymd, attempt) {
       script.remove();
       fn(arg);
     };
-    let afterLoad;
     const timer = setTimeout(
       () => finish(reject, new Error("Universalis didn't answer in time (slow connection?).")),
       20000
@@ -139,7 +200,7 @@ function loadUniversalis(ymd, attempt) {
         ? "Couldn't load the readings from universalis.com (blocked or unreachable)."
         : "You're offline."));
     // cache-buster on retries so a bad cached copy isn't reused
-    script.src = `https://universalis.com/${ymd}/jsonpmass.js${attempt ? `?r=${Date.now()}` : ""}`;
+    script.src = `https://universalis.com/${UNIVERSALIS_REGION}/${ymd}/jsonpmass.js${attempt ? `?r=${Date.now()}` : ""}`;
     document.head.append(script);
   });
 }
@@ -154,9 +215,9 @@ function fetchMassReadings(dateKey) {
 
 // ------------------------------------------------------------------ rendering
 
-function renderPassage(p, { label } = {}) {
+/** KJV passage from bible-api.com (Look up / Random) */
+function renderPassage(p) {
   const wrap = el("article", { class: "reading" });
-  if (label) wrap.append(el("p", { class: "reading-label" }, label));
   wrap.append(el("h2", { class: "passage-ref" }, p.reference, el("span", { class: "tr" }, "KJV")));
   const body = el("p", { class: "passage" });
   const numbered = p.verses.length > 1;
@@ -165,6 +226,19 @@ function renderPassage(p, { label } = {}) {
     body.append(text + (i < p.verses.length - 1 ? " " : ""));
   });
   wrap.append(body);
+  return wrap;
+}
+
+/** One reading from the Universalis feed */
+function renderLectionary(key, r) {
+  const wrap = el("article", { class: "reading" });
+  wrap.append(el("p", { class: "reading-label" }, labelFor(key)));
+  // "Heb4:12" -> "Heb 4:12"
+  const source = htmlToText(r.source).replace(/^(\d?\s?[A-Za-z]+)(\d)/, "$1 $2");
+  if (source) wrap.append(el("h2", { class: "passage-ref" }, source));
+  const heading = htmlToText(r.heading);
+  if (heading) wrap.append(el("p", { class: "reading-heading" }, heading));
+  wrap.append(readingBody(r.text));
   return wrap;
 }
 
@@ -181,11 +255,13 @@ async function showReadings(dateKey) {
   const title = $("#day-title");
   const alt = $("#day-alt");
   const out = $("#readings");
+  const credit = $("#readings-credit");
 
   $("#date").value = dateKey;
   $("#today-btn").hidden = dateKey === localDateKey();
   title.textContent = "";
   alt.textContent = "";
+  credit.replaceChildren();
   out.replaceChildren(skeleton());
 
   let data;
@@ -198,35 +274,24 @@ async function showReadings(dateKey) {
   if (token !== todayToken) return;
 
   // "Friday of week 27 ... or Saint Denis ... or Saint John Leonardi ..."
-  const [main, ...optional] = htmlToText(data.day || "").split(/ or (?=Saint|Saints|Blessed|Our Lady|The )/);
-  title.textContent = main || data.date || "";
+  const [main, ...optional] = htmlToText(data.day).split(/ or (?=Saint|Saints|Blessed|Our Lady|The )/);
+  title.textContent = main || htmlToText(data.date);
   alt.textContent = optional.length ? `Optional memorial${optional.length > 1 ? "s" : ""}: ${optional.join("; ")}` : "";
   document.title = `${main} · biblefnd`;
 
-  const present = READINGS.filter(([key]) => data[key] && data[key].source);
-  const slots = present.map(([, label]) => {
-    const slot = el("div", { class: "reading" }, el("p", { class: "reading-label" }, label), skeleton());
-    return slot;
-  });
-  out.replaceChildren(...slots);
+  const keys = Object.keys(data).filter((k) => /^Mass_/.test(k) && data[k] && (data[k].text || data[k].source));
+  if (!keys.length) {
+    out.replaceChildren(el("p", { class: "note" }, "No readings were found for this day."));
+  } else {
+    out.replaceChildren(...keys.map((k) => renderLectionary(k, data[k])));
+  }
 
-  await Promise.all(
-    present.map(async ([key, label], i) => {
-      const reference = normalizeReference(data[key].source);
-      let node;
-      try {
-        node = renderPassage(await fetchReference(reference), { label });
-      } catch (e) {
-        const why = NOT_IN_KJV.some((b) => reference.includes(b))
-          ? "This book isn't in the King James Version."
-          : `Couldn't load the KJV text. ${e.message}`;
-        node = el("article", { class: "reading" },
-          el("p", { class: "reading-label" }, label),
-          el("h2", { class: "passage-ref" }, reference),
-          el("p", { class: "note" }, why));
-      }
-      if (token === todayToken) slots[i].replaceWith(node);
-    })
+  // Universalis' terms: the copyright notice must be visible, with a link to them.
+  credit.replaceChildren(
+    el("p", {}, htmlToText(data.copyright)),
+    el("p", {}, "Readings provided by ",
+      el("a", { href: `https://universalis.com/${UNIVERSALIS_REGION}/${dateKey.replaceAll("-", "")}/mass.htm`, rel: "noopener" }, "Universalis"),
+      ".")
   );
 }
 
@@ -323,4 +388,4 @@ if ("serviceWorker" in navigator) {
 }
 
 // exposed for the in-browser tests
-window.biblefnd = { normalizeReference, htmlToText, clean };
+window.biblefnd = { readingBody, htmlToText, labelFor };

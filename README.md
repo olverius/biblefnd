@@ -1,52 +1,19 @@
 # biblefnd
 
-Look up King James Version Bible passages and today's Mass readings from the terminal.
+Today's Catholic Mass readings in English, following the calendar of the Catholic
+Church in Denmark, plus quick Bible look-ups. Made for students in our parish
+who want to follow what's read at Mass in Danish.
 
-```
-$ biblefnd luke 3:15
-Luke 3:15 (KJV)
-And as the people were in expectation, and all men mused in their hearts of John, whether he were the Christ, or not;
-```
-
-## Usage
-
-```sh
-biblefnd luke 3:15          # a single verse
-biblefnd 1 john 4:8         # books with numbers work too
-biblefnd john 3:16-18       # a range
-biblefnd psalm 23           # a whole chapter
-biblefnd today              # today's Mass readings and Gospel
-biblefnd random             # a random verse
-biblefnd verse              # a single verse of the day
-biblefnd --help
-```
-
-`biblefnd today` prints the first reading, responsorial psalm, the second reading
-(on Sundays and feasts) and the Gospel for today's date, all in KJV:
-
-```
-Friday of week 27 in Ordinary Time
-Friday 9 October 2026
-
-── First Reading ──
-Galatians 3:7-14 (KJV)
-  7 Know ye therefore that they which are of faith, the same are the children of Abraham.
-  ...
-
-── Responsorial Psalm ──
-Psalms 111:1-6 (KJV)
-  ...
-
-── Gospel ──
-Luke 11:15-26 (KJV)
-  ...
-```
+Available as a **web app for phones** and as a **command-line tool**.
 
 ## Web app (Android & iPhone)
 
-The same features are available as an installable web app at
-**https://olverius.github.io/biblefnd/**. It has three tabs: Today (with a date
-picker for other days), Look up, and Random.
+**https://olverius.github.io/biblefnd/**
+
+- **Today:** the day's readings: first reading, psalm, second reading (Sundays and
+  feasts), Gospel acclamation and Gospel. Pick any other date with the date picker.
+- **Look up:** any passage, e.g. `luke 3:15`, `john 3:16-18`, `psalm 23` (KJV).
+- **Random:** a random verse (KJV).
 
 To install it on your phone:
 
@@ -54,12 +21,24 @@ To install it on your phone:
 - **iPhone (Safari):** open the link, tap Share → *Add to Home Screen*.
 
 It opens full-screen like a normal app, and readings you've already opened
-still work offline. The source is in [`docs/`](docs/) (plain HTML/CSS/JS, no
-build step) and is served by GitHub Pages.
+still work offline. Shareable links: `#today/2026-12-25`, `#lookup/john 3:16`.
 
-Shareable links: `#lookup/john 3:16`, `#today/2026-12-25`, `#random`.
+The source is in [`docs/`](docs/) (plain HTML/CSS/JS, no build step) and is
+served by GitHub Pages.
 
-## Install the command-line tool
+## Command-line tool
+
+```sh
+biblefnd today              # today's Mass readings
+biblefnd today 2026-12-25   # the readings for another date
+biblefnd luke 3:15          # a single verse (KJV)
+biblefnd john 3:16-18       # a range (KJV)
+biblefnd psalm 23           # a whole chapter (KJV)
+biblefnd random             # a random verse (KJV)
+biblefnd verse              # a single verse of the day (KJV)
+```
+
+### Install
 
 Requires a Rust toolchain ([rustup](https://rustup.rs)).
 
@@ -76,32 +55,31 @@ add that folder to your `PATH`:
 export PATH="$HOME/.cargo/bin:$PATH"   # e.g. in ~/.bashrc
 ```
 
-## How it works
+## Where the texts come from
 
-- **Verse text** comes from [bible-api.com](https://bible-api.com), using the
-  King James Version (public domain). No API key needed.
-- **Today's readings** take the day's references from
-  [Universalis](https://universalis.com), then fetch each passage in KJV. Only the
-  references are used, not Universalis' own text.
-  - Catholic sources number most psalms one lower than the KJV (Greek vs Hebrew
-    numbering). Universalis gives both, e.g. `Psalm 110(111)`, and biblefnd uses
-    the KJV number.
-  - Half-verse references like `11a` are fetched as the whole verse.
-  - Some first readings come from Tobit, Judith, Wisdom, Sirach, Baruch or
-    Maccabees, which the KJV doesn't include. On those days the reference is
-    shown with a note and the other readings still print.
-- **Verse of the day** (`biblefnd verse`) takes its reference from
+- **Mass readings** come from [Universalis](https://universalis.com), using its
+  calendar for Denmark (so Danish feasts such as St Ansgar are included). The
+  text is the English Catholic lectionary: the *Jerusalem Bible* with the *Grail*
+  psalms. These translations are under copyright; Universalis provides them
+  for use on web pages provided their copyright notice is shown and they are
+  credited. Both the web app and the CLI show the notice under the readings.
+- **Look up and Random** use the King James Version from
+  [bible-api.com](https://bible-api.com) (public domain). It's a Protestant
+  translation in older English and doesn't include the deuterocanonical books
+  (Tobit, Wisdom, Sirach, …), so for following Mass, use the Today readings.
+- **Verse of the day** (`biblefnd verse`, CLI only) takes its reference from
   [OurManna](https://ourmanna.com) and fetches the text in KJV.
-
-The date used for `today` is your local date.
 
 ## Development
 
 ```sh
-cargo test     # reference parsing and HTML-cleanup tests
+cargo test               # text-conversion and parsing tests
 cargo run -- today
 ```
 
+For the web app, serve `docs/` locally (e.g. `python -m http.server -d docs`)
+and open http://localhost:8000.
+
 Dependencies: [`ureq`](https://crates.io/crates/ureq) (HTTP),
 [`serde_json`](https://crates.io/crates/serde_json),
-[`chrono`](https://crates.io/crates/chrono) (local date).
+[`chrono`](https://crates.io/crates/chrono) (dates).

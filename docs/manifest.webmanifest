@@ -1,7 +1,7 @@
 {
-  "name": "biblefnd — KJV & daily readings",
+  "name": "biblefnd — daily Mass readings",
   "short_name": "biblefnd",
-  "description": "Today's Mass readings and any Bible passage in the King James Version.",
+  "description": "Today's Catholic Mass readings in English (Danish calendar), plus Bible look-up.",
   "start_url": "./#today",
   "scope": "./",
   "display": "standalone",
