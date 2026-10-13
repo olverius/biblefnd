@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>biblefnd</title>
+  <meta name="description" content="Today's Mass readings and any Bible passage in the King James Version.">
+  <meta name="theme-color" content="#f6f1e7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16130f" media="(prefers-color-scheme: dark)">
+
+  <!-- installable app -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="biblefnd">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="brand">biblefnd</span>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#today" data-tab="today">Today</a>
+      <a href="#lookup" data-tab="lookup">Look up</a>
+      <a href="#random" data-tab="random">Random</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- TODAY -->
+    <section id="view-today" class="view" hidden>
+      <div class="dayhead">
+        <label class="datepick">
+          <span class="visually-hidden">Date</span>
+          <input type="date" id="date">
+        </label>
+        <button type="button" id="today-btn" class="link-btn" hidden>Back to today</button>
+      </div>
+      <h1 id="day-title" class="day-title"></h1>
+      <p id="day-alt" class="day-alt"></p>
+      <div id="readings" aria-live="polite"></div>
+    </section>
+
+    <!-- LOOK UP -->
+    <section id="view-lookup" class="view" hidden>
+      <form id="lookup-form" class="lookup" autocomplete="off">
+        <label for="ref" class="visually-hidden">Reference</label>
+        <input id="ref" type="search" inputmode="text" placeholder="luke 3:15" enterkeyhint="search" autocapitalize="off" spellcheck="false">
+        <button type="submit">Find</button>
+      </form>
+      <p class="hint">Try <a href="#lookup/john 3:16-18">john 3:16-18</a>, <a href="#lookup/psalm 23">psalm 23</a> or <a href="#lookup/1 corinthians 13">1 corinthians 13</a></p>
+      <div id="lookup-result" aria-live="polite"></div>
+    </section>
+
+    <!-- RANDOM -->
+    <section id="view-random" class="view" hidden>
+      <div id="random-result" aria-live="polite"></div>
+      <button type="button" id="random-btn" class="primary">Another verse</button>
+    </section>
+  </main>
+
+  <footer class="foot">
+    King James Version text from <a href="https://bible-api.com">bible-api.com</a>.
+    Reading references from <a href="https://universalis.com">Universalis</a>.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

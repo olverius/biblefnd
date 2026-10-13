@@ -42,7 +42,24 @@ Luke 11:15-26 (KJV)
   ...
 ```
 
-## Install
+## Web app (Android & iPhone)
+
+The same features are available as an installable web app at
+**https://olverius.github.io/biblefnd/**. It has three tabs: Today (with a date
+picker for other days), Look up, and Random.
+
+To install it on your phone:
+
+- **Android (Chrome):** open the link, tap ⋮ → *Add to Home screen* / *Install app*.
+- **iPhone (Safari):** open the link, tap Share → *Add to Home Screen*.
+
+It opens full-screen like a normal app, and readings you've already opened
+still work offline. The source is in [`docs/`](docs/) (plain HTML/CSS/JS, no
+build step) and is served by GitHub Pages.
+
+Shareable links: `#lookup/john 3:16`, `#today/2026-12-25`, `#random`.
+
+## Install the command-line tool
 
 Requires a Rust toolchain ([rustup](https://rustup.rs)).
 
