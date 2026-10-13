@@ -3,7 +3,7 @@
 //             lectionary text (Jerusalem Bible + Grail psalms) from Universalis
 //   Look up : any reference in the World English Bible (modern English,
 //             includes the deuterocanonical books), e.g. "luke 3:15"
-//   Random  : a random reading from the Mass of a random day, same text as Today
+//   Random  : a random reading from the Mass of a nearby day, same text as Today
 "use strict";
 
 const BIBLE_API = "https://bible-api.com";
@@ -13,6 +13,11 @@ const LOOKUP_TRANSLATION = { id: "web", short: "WEB" };
 
 // Universalis calendar: Denmark, so Danish feasts (e.g. St Ansgar) are included.
 const UNIVERSALIS_REGION = "europe.denmark";
+
+// Universalis' free feed only serves days close to today (observed: about
+// 3 days back to a week ahead; further away it refuses with HTTP 403).
+const WINDOW_BACK = 3;
+const WINDOW_AHEAD = 7;
 
 // Labels for the readings Universalis sends. Anything not listed gets a
 // label derived from its key, so special days (Easter Vigil etc.) still show.
@@ -41,6 +46,17 @@ function localDateKey(d = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+
+function shiftDays(days) {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+}
+
+function inWindow(dateKey) {
+  return dateKey >= localDateKey(shiftDays(-WINDOW_BACK)) && dateKey <= localDateKey(shiftDays(WINDOW_AHEAD));
+}
+
+const OUT_OF_WINDOW = `Universalis only provides the readings from ${WINDOW_BACK} days ago to ${WINDOW_AHEAD} days ahead. Pick a date in that range.`;
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -162,12 +178,10 @@ async function fetchReference(ref) {
   return { reference: json.reference || ref, verses };
 }
 
-/** A random reading from the Mass of a random day in the last three years
- *  (covers all Sunday cycles A/B/C and weekday years I/II). */
+/** A random reading from the Mass of a random day within the Universalis window. */
 async function fetchRandomReading() {
-  const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - Math.floor(Math.random() * 3 * 365));
-  const dateKey = localDateKey(d);
+  const offset = Math.floor(Math.random() * (WINDOW_BACK + WINDOW_AHEAD + 1)) - WINDOW_BACK;
+  const dateKey = localDateKey(shiftDays(offset));
   const data = await fetchMassReadings(dateKey);
   // readings and Gospels with real text; skip the short Gospel acclamation
   const keys = Object.keys(data).filter((k) => /^Mass_/.test(k) && !/^Mass_GA/.test(k) && data[k] && data[k].text);
@@ -276,9 +290,11 @@ function renderError(target, err) {
 // ------------------------------------------------------------------ Today
 
 let todayToken = 0;
+let shownDate = null; // the date whose readings are on screen (or loading)
 
 async function showReadings(dateKey) {
   const token = ++todayToken;
+  shownDate = dateKey;
   const title = $("#day-title");
   const alt = $("#day-alt");
   const out = $("#readings");
@@ -290,6 +306,11 @@ async function showReadings(dateKey) {
   alt.textContent = "";
   credit.replaceChildren();
   out.replaceChildren(skeleton());
+
+  if (!inWindow(dateKey)) {
+    out.replaceChildren(el("p", { class: "note" }, OUT_OF_WINDOW));
+    return;
+  }
 
   let data;
   try {
@@ -380,7 +401,7 @@ function route() {
 
   if (view === "today") {
     const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(arg) ? arg : localDateKey();
-    if ($("#date").value !== dateKey || !$("#readings").hasChildNodes()) showReadings(dateKey);
+    if (dateKey !== shownDate) showReadings(dateKey);
   } else if (view === "lookup") {
     if (arg && arg !== lastLookup) showLookup(arg);
     else if (!arg) $("#ref").focus();
@@ -389,6 +410,10 @@ function route() {
     showRandom();
   }
 }
+
+// keep the date picker inside the range Universalis serves
+$("#date").min = localDateKey(shiftDays(-WINDOW_BACK));
+$("#date").max = localDateKey(shiftDays(WINDOW_AHEAD));
 
 $("#date").addEventListener("change", (e) => {
   if (e.target.value) location.hash = `today/${e.target.value}`;
@@ -406,8 +431,10 @@ $("#random-btn").addEventListener("click", showRandom);
 
 // When the app is reopened on a new day, move "today" forward.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && (location.hash === "" || location.hash === "#today")
-      && $("#date").value !== localDateKey()) {
+  if (document.visibilityState !== "visible") return;
+  $("#date").min = localDateKey(shiftDays(-WINDOW_BACK));
+  $("#date").max = localDateKey(shiftDays(WINDOW_AHEAD));
+  if ((location.hash === "" || location.hash === "#today") && shownDate !== localDateKey()) {
     showReadings(localDateKey());
   }
 });
