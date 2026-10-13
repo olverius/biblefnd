@@ -12,8 +12,9 @@ Available as a **web app for phones** and as a **command-line tool**.
 
 - **Today:** the day's readings: first reading, psalm, second reading (Sundays and
   feasts), Gospel acclamation and Gospel. Pick any other date with the date picker.
-- **Look up:** any passage, e.g. `luke 3:15`, `john 3:16-18`, `psalm 23` (KJV).
-- **Random:** a random verse (KJV).
+- **Look up:** any passage, e.g. `luke 3:15`, `john 3:16-18`, `sirach 2:1`
+  (World English Bible).
+- **Random:** a reading from the Mass of a random day (same text as Today).
 
 To install it on your phone:
 
@@ -31,11 +32,11 @@ served by GitHub Pages.
 ```sh
 biblefnd today              # today's Mass readings
 biblefnd today 2026-12-25   # the readings for another date
-biblefnd luke 3:15          # a single verse (KJV)
-biblefnd john 3:16-18       # a range (KJV)
-biblefnd psalm 23           # a whole chapter (KJV)
-biblefnd random             # a random verse (KJV)
-biblefnd verse              # a single verse of the day (KJV)
+biblefnd random             # a reading from the Mass of a random day
+biblefnd luke 3:15          # a single verse (WEB)
+biblefnd john 3:16-18       # a range (WEB)
+biblefnd psalm 23           # a whole chapter (WEB)
+biblefnd verse              # a single verse of the day (WEB)
 ```
 
 ### Install
@@ -57,18 +58,19 @@ export PATH="$HOME/.cargo/bin:$PATH"   # e.g. in ~/.bashrc
 
 ## Where the texts come from
 
-- **Mass readings** come from [Universalis](https://universalis.com), using its
+- **Mass readings** (Today and Random) come from [Universalis](https://universalis.com), using its
   calendar for Denmark (so Danish feasts such as St Ansgar are included). The
   text is the English Catholic lectionary: the *Jerusalem Bible* with the *Grail*
   psalms. These translations are under copyright; Universalis provides them
   for use on web pages provided their copyright notice is shown and they are
   credited. Both the web app and the CLI show the notice under the readings.
-- **Look up and Random** use the King James Version from
-  [bible-api.com](https://bible-api.com) (public domain). It's a Protestant
-  translation in older English and doesn't include the deuterocanonical books
-  (Tobit, Wisdom, Sirach, …), so for following Mass, use the Today readings.
+- **Look up** uses the World English Bible from
+  [bible-api.com](https://bible-api.com): public domain, modern English, and it
+  includes the deuterocanonical books (Tobit, Wisdom, Sirach, …). The Jerusalem
+  Bible itself isn't available for free look-ups, so the wording of a looked-up
+  passage can differ slightly from what's read at Mass.
 - **Verse of the day** (`biblefnd verse`, CLI only) takes its reference from
-  [OurManna](https://ourmanna.com) and fetches the text in KJV.
+  [OurManna](https://ourmanna.com) and fetches the text in WEB.
 
 ## Development
 

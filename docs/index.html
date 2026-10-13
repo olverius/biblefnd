@@ -51,20 +51,22 @@
         <input id="ref" type="search" inputmode="text" placeholder="luke 3:15" enterkeyhint="search" autocapitalize="off" spellcheck="false">
         <button type="submit">Find</button>
       </form>
-      <p class="hint">Try <a href="#lookup/john 3:16-18">john 3:16-18</a>, <a href="#lookup/psalm 23">psalm 23</a> or <a href="#lookup/1 corinthians 13">1 corinthians 13</a></p>
+      <p class="hint">World English Bible (modern English, includes Tobit, Wisdom, Sirach…). Try <a href="#lookup/john 3:16-18">john 3:16-18</a>, <a href="#lookup/psalm 23">psalm 23</a> or <a href="#lookup/1 corinthians 13">1 corinthians 13</a></p>
       <div id="lookup-result" aria-live="polite"></div>
     </section>
 
     <!-- RANDOM -->
     <section id="view-random" class="view" hidden>
+      <p class="hint">A reading from the Mass of a random day.</p>
       <div id="random-result" aria-live="polite"></div>
-      <button type="button" id="random-btn" class="primary">Another verse</button>
+      <button type="button" id="random-btn" class="primary">Another reading</button>
+      <div id="random-credit" class="credit"></div>
     </section>
   </main>
 
   <footer class="foot">
     Mass readings from <a href="https://universalis.com">Universalis</a> (Danish calendar).
-    Look up and Random use the King James Version from <a href="https://bible-api.com">bible-api.com</a>.
+    Look up uses the World English Bible from <a href="https://bible-api.com">bible-api.com</a>.
   </footer>
 
   <script src="app.js"></script>

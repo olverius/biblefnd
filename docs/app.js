@@ -1,11 +1,15 @@
 // biblefnd web app
 //   Today   : the day's Mass readings for Denmark, in the English Catholic
 //             lectionary text (Jerusalem Bible + Grail psalms) from Universalis
-//   Look up : any reference in the King James Version, e.g. "luke 3:15"
-//   Random  : a random KJV verse
+//   Look up : any reference in the World English Bible (modern English,
+//             includes the deuterocanonical books), e.g. "luke 3:15"
+//   Random  : a random reading from the Mass of a random day, same text as Today
 "use strict";
 
 const BIBLE_API = "https://bible-api.com";
+// The Jerusalem Bible used at Mass can't be looked up freely, so look-ups use
+// the World English Bible: public domain, modern English, all Catholic books.
+const LOOKUP_TRANSLATION = { id: "web", short: "WEB" };
 
 // Universalis calendar: Denmark, so Danish feasts (e.g. St Ansgar) are included.
 const UNIVERSALIS_REGION = "europe.denmark";
@@ -151,18 +155,25 @@ async function getJson(url) {
 async function fetchReference(ref) {
   const q = ref.trim().replace(/\s+/g, "+");
   if (!q) throw new Error("Type a reference, e.g. luke 3:15");
-  const json = await getJson(`${BIBLE_API}/${encodeURI(q)}?translation=kjv`);
+  const json = await getJson(`${BIBLE_API}/${encodeURI(q)}?translation=${LOOKUP_TRANSLATION.id}`);
   if (json.error) throw new Error(json.error);
   const verses = (json.verses || []).map((v) => [v.verse, clean(v.text)]);
   if (!verses.length) throw new Error("Not found.");
   return { reference: json.reference || ref, verses };
 }
 
-async function fetchRandom() {
-  const json = await getJson(`${BIBLE_API}/data/kjv/random`);
-  const v = json.random_verse;
-  if (!v) throw new Error("Unexpected response.");
-  return { reference: `${v.book} ${v.chapter}:${v.verse}`, verses: [[v.verse, clean(v.text)]] };
+/** A random reading from the Mass of a random day in the last three years
+ *  (covers all Sunday cycles A/B/C and weekday years I/II). */
+async function fetchRandomReading() {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - Math.floor(Math.random() * 3 * 365));
+  const dateKey = localDateKey(d);
+  const data = await fetchMassReadings(dateKey);
+  // readings and Gospels with real text; skip the short Gospel acclamation
+  const keys = Object.keys(data).filter((k) => /^Mass_/.test(k) && !/^Mass_GA/.test(k) && data[k] && data[k].text);
+  if (!keys.length) throw new Error("No readings found for the chosen day — try again.");
+  const key = keys[Math.floor(Math.random() * keys.length)];
+  return { key, reading: data[key], data, dateKey };
 }
 
 // Universalis only offers JSONP (a <script> that calls universalisCallback),
@@ -215,10 +226,10 @@ function fetchMassReadings(dateKey) {
 
 // ------------------------------------------------------------------ rendering
 
-/** KJV passage from bible-api.com (Look up / Random) */
+/** Look-up passage from bible-api.com */
 function renderPassage(p) {
   const wrap = el("article", { class: "reading" });
-  wrap.append(el("h2", { class: "passage-ref" }, p.reference, el("span", { class: "tr" }, "KJV")));
+  wrap.append(el("h2", { class: "passage-ref" }, p.reference, el("span", { class: "tr" }, LOOKUP_TRANSLATION.short)));
   const body = el("p", { class: "passage" });
   const numbered = p.verses.length > 1;
   p.verses.forEach(([n, text], i) => {
@@ -240,6 +251,22 @@ function renderLectionary(key, r) {
   if (heading) wrap.append(el("p", { class: "reading-heading" }, heading));
   wrap.append(readingBody(r.text));
   return wrap;
+}
+
+/** Universalis' terms: their copyright notice must be visible, with a link to them. */
+function universalisCredit(data, dateKey) {
+  return [
+    el("p", {}, htmlToText(data.copyright)),
+    el("p", {}, "Readings provided by ",
+      el("a", { href: `https://universalis.com/${UNIVERSALIS_REGION}/${dateKey.replaceAll("-", "")}/mass.htm`, rel: "noopener" }, "Universalis"),
+      "."),
+  ];
+}
+
+/** "Friday of week 27 ... or Saint Denis ..." -> ["Friday of week 27 ...", ["Saint Denis ..."]] */
+function splitDay(data) {
+  const [main, ...optional] = htmlToText(data.day).split(/ or (?=Saint|Saints|Blessed|Our Lady|The )/);
+  return [main || htmlToText(data.date), optional];
 }
 
 function renderError(target, err) {
@@ -273,9 +300,8 @@ async function showReadings(dateKey) {
   }
   if (token !== todayToken) return;
 
-  // "Friday of week 27 ... or Saint Denis ... or Saint John Leonardi ..."
-  const [main, ...optional] = htmlToText(data.day).split(/ or (?=Saint|Saints|Blessed|Our Lady|The )/);
-  title.textContent = main || htmlToText(data.date);
+  const [main, optional] = splitDay(data);
+  title.textContent = main;
   alt.textContent = optional.length ? `Optional memorial${optional.length > 1 ? "s" : ""}: ${optional.join("; ")}` : "";
   document.title = `${main} · biblefnd`;
 
@@ -286,13 +312,7 @@ async function showReadings(dateKey) {
     out.replaceChildren(...keys.map((k) => renderLectionary(k, data[k])));
   }
 
-  // Universalis' terms: the copyright notice must be visible, with a link to them.
-  credit.replaceChildren(
-    el("p", {}, htmlToText(data.copyright)),
-    el("p", {}, "Readings provided by ",
-      el("a", { href: `https://universalis.com/${UNIVERSALIS_REGION}/${dateKey.replaceAll("-", "")}/mass.htm`, rel: "noopener" }, "Universalis"),
-      ".")
-  );
+  credit.replaceChildren(...universalisCredit(data, dateKey));
 }
 
 // ------------------------------------------------------------------ Look up
@@ -317,11 +337,24 @@ async function showLookup(ref) {
 
 async function showRandom() {
   const out = $("#random-result");
+  const credit = $("#random-credit");
+  const btn = $("#random-btn");
+  btn.disabled = true;
+  credit.replaceChildren();
   out.replaceChildren(skeleton());
   try {
-    out.replaceChildren(renderPassage(await fetchRandom()));
+    const { key, reading, data, dateKey } = await fetchRandomReading();
+    const [main] = splitDay(data);
+    out.replaceChildren(
+      renderLectionary(key, reading),
+      el("p", { class: "from-mass" }, "From the Mass of ",
+        el("a", { href: `#today/${dateKey}` }, main), ` · ${htmlToText(data.date)}`)
+    );
+    credit.replaceChildren(...universalisCredit(data, dateKey));
   } catch (e) {
     renderError(out, e);
+  } finally {
+    btn.disabled = false;
   }
 }
 

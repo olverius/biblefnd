@@ -303,12 +303,20 @@ button[type="submit"], .primary {
 }
 
 #lookup-result:not(:empty) { margin-top: 20px; }
+#view-random .hint { margin-top: 0; }
 
 /* ---------- random ---------- */
 
-#random-result { min-height: 8em; }
+#random-result { min-height: 8em; margin-top: 4px; }
+#random-result .reading:first-child { margin-top: 12px; }
 
-#random-result .passage { font-size: 22px; }
+.from-mass {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 14px 0 0;
+}
+
+.primary:disabled { opacity: 0.5; cursor: default; }
 
 .primary { margin-top: 24px; }
 

@@ -1,28 +1,32 @@
 //! biblefnd — Bible verses and the day's Mass readings from the terminal.
 //!
-//!   biblefnd luke 3:15        a specific verse (KJV)
-//!   biblefnd john 3:16-18     a range (KJV)
-//!   biblefnd psalm 23         a whole chapter (KJV)
-//!   biblefnd random           a random verse (KJV)
-//!   biblefnd verse            a single verse of the day (KJV)
 //!   biblefnd today            today's Mass readings (Danish calendar)
 //!   biblefnd today 2026-12-25 the readings for another date
+//!   biblefnd random           a reading from the Mass of a random day
+//!   biblefnd luke 3:15        a specific verse (WEB)
+//!   biblefnd john 3:16-18     a range (WEB)
+//!   biblefnd psalm 23         a whole chapter (WEB)
+//!   biblefnd verse            a single verse of the day (WEB)
 //!
-//! Verse look-ups use bible-api.com (King James Version, public domain).
-//! The Mass readings come from Universalis: the English Catholic lectionary
-//! text (Jerusalem Bible, Grail psalms) with its copyright notice.
+//! The Mass readings (today, random) come from Universalis: the English
+//! Catholic lectionary text (Jerusalem Bible, Grail psalms) with its copyright
+//! notice. The Jerusalem Bible can't be looked up freely, so look-ups use the
+//! World English Bible from bible-api.com: public domain, modern English, and
+//! it includes the deuterocanonical books (Tobit, Wisdom, Sirach, ...).
 
 use serde_json::Value;
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
 const BIBLE_API: &str = "https://bible-api.com";
+/// bible-api.com translation id and the label printed after references.
+const LOOKUP_TRANSLATION: (&str, &str) = ("web", "WEB");
 const VERSE_OF_DAY_API: &str = "https://beta.ourmanna.com/api/v1/get?format=json&order=daily";
 
 /// Universalis calendar: Denmark, so Danish feasts (e.g. St Ansgar) are included.
 const UNIVERSALIS_REGION: &str = "europe.denmark";
 
-/// A KJV passage ready to print.
+/// A look-up passage ready to print.
 struct Passage {
     reference: String,
     /// (verse number, text). Single-verse lookups have one entry.
@@ -39,7 +43,7 @@ fn main() -> ExitCode {
         }
         Some("today") if args.len() == 1 => show_readings(&chrono::Local::now().format("%Y%m%d").to_string()),
         Some("today") if args.len() == 2 => parse_date(&args[1]).and_then(|d| show_readings(&d)),
-        Some("random") if args.len() == 1 => fetch_random().map(|p| print_passage(&p)),
+        Some("random") if args.len() == 1 => show_random_reading(),
         Some("verse") if args.len() == 1 => fetch_verse_of_day().map(|p| print_passage(&p)),
         _ => fetch_reference(&args.join(" ")).map(|p| print_passage(&p)),
     };
@@ -60,11 +64,14 @@ fn print_help() {
 USAGE:
     biblefnd today                      today's Mass readings (Danish calendar)
     biblefnd today <YYYY-MM-DD>         the readings for another date
-    biblefnd <book> <chapter>:<verse>   e.g. biblefnd luke 3:15      (KJV)
-    biblefnd <book> <chapter>:<a>-<b>   e.g. biblefnd john 3:16-18   (KJV)
-    biblefnd <book> <chapter>           e.g. biblefnd psalm 23       (KJV)
-    biblefnd random                     a random verse               (KJV)
-    biblefnd verse                      a single verse of the day    (KJV)"
+    biblefnd random                     a reading from the Mass of a random day
+    biblefnd <book> <chapter>:<verse>   e.g. biblefnd luke 3:15      (WEB)
+    biblefnd <book> <chapter>:<a>-<b>   e.g. biblefnd john 3:16-18   (WEB)
+    biblefnd <book> <chapter>           e.g. biblefnd psalm 23       (WEB)
+    biblefnd verse                      a single verse of the day    (WEB)
+
+Mass readings: Jerusalem Bible / Grail psalms, via Universalis.
+Look-ups: World English Bible (includes Tobit, Wisdom, Sirach, ...)."
     );
 }
 
@@ -102,7 +109,7 @@ fn fetch_reference(reference: &str) -> Result<Passage, String> {
     if reference.is_empty() {
         return Err("no reference given".into());
     }
-    let url = format!("{BIBLE_API}/{}?translation=kjv", encode_path(reference));
+    let url = format!("{BIBLE_API}/{}?translation={}", encode_path(reference), LOOKUP_TRANSLATION.0);
     let json = get_json(&url)?;
 
     if let Some(err) = json.get("error").and_then(Value::as_str) {
@@ -126,29 +133,17 @@ fn fetch_reference(reference: &str) -> Result<Passage, String> {
     })
 }
 
-fn fetch_random() -> Result<Passage, String> {
-    let json = get_json(&format!("{BIBLE_API}/data/kjv/random"))?;
-    let v = &json["random_verse"];
-    match (v["book"].as_str(), v["chapter"].as_u64(), v["verse"].as_u64()) {
-        (Some(b), Some(c), Some(n)) => Ok(Passage {
-            reference: format!("{b} {c}:{n}"),
-            verses: vec![(n, clean(v["text"].as_str().unwrap_or("")))],
-        }),
-        _ => Err("unexpected response from bible-api.com".into()),
-    }
-}
-
 fn fetch_verse_of_day() -> Result<Passage, String> {
     let json = get_json(VERSE_OF_DAY_API)?;
     let reference = json["verse"]["details"]["reference"]
         .as_str()
         .ok_or("could not get today's verse reference")?;
-    // OurManna serves NIV text, so only take the reference and re-fetch it in KJV.
+    // OurManna serves NIV text, so only take the reference and re-fetch it.
     fetch_reference(reference)
 }
 
-/// Print the Mass readings for a date given as YYYYMMDD.
-fn show_readings(ymd: &str) -> Result<(), String> {
+/// Fetch the Universalis Mass feed for a date given as YYYYMMDD.
+fn fetch_mass(ymd: &str) -> Result<Value, String> {
     let body = get_text(&format!("https://universalis.com/{UNIVERSALIS_REGION}/{ymd}/jsonpmass.js"))?;
 
     // The response is JSONP: universalisCallback({...});
@@ -158,16 +153,64 @@ fn show_readings(ymd: &str) -> Result<(), String> {
             .map_err(|e| format!("could not parse readings: {e}"))?,
         _ => return Err("unexpected response from universalis.com".into()),
     };
-    let Some(obj) = json.as_object() else {
+    if !json.is_object() {
         return Err("unexpected response from universalis.com".into());
-    };
+    }
+    Ok(json)
+}
 
+/// The readings in a feed, in the order Universalis sends them
+/// (serde_json "preserve_order").
+fn mass_readings(json: &Value) -> Vec<(&String, &Value)> {
+    json.as_object()
+        .map(|obj| {
+            obj.iter()
+                .filter(|(k, v)| {
+                    k.starts_with("Mass_")
+                        && (v["text"].as_str().is_some_and(|t| !t.trim().is_empty())
+                            || v["source"].as_str().is_some_and(|t| !t.trim().is_empty()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// ("Friday of week 27 in Ordinary Time", ["Saint Denis", ...])
+fn day_title(json: &Value) -> (String, Vec<String>) {
+    let day = html_to_plain(json["day"].as_str().unwrap_or(""), &Styles::plain()).replace('\n', " ");
+    split_day_title(&clean(&day))
+}
+
+fn print_reading(key: &str, reading: &Value, st: &Styles) {
+    println!("{}── {} ──{}", st.bold, label_for(key), st.reset);
+    let source = spaced_source(&clean(&html_to_plain(reading["source"].as_str().unwrap_or(""), &Styles::plain())));
+    if !source.is_empty() {
+        println!("{}{}{}", st.bold, source, st.reset);
+    }
+    let heading = clean(&html_to_plain(reading["heading"].as_str().unwrap_or(""), &Styles::plain()));
+    if !heading.is_empty() {
+        println!("{}{}{}", st.italic, heading, st.italic_off);
+    }
+    println!();
+    println!("{}", html_to_plain(reading["text"].as_str().unwrap_or(""), st));
+}
+
+/// Universalis' terms: show their copyright notice and point to them.
+fn print_credit(json: &Value, st: &Styles) {
+    let copyright = clean(&html_to_plain(json["copyright"].as_str().unwrap_or(""), &Styles::plain()));
+    println!();
+    if !copyright.is_empty() {
+        println!("{}{}{}", st.dim, copyright, st.reset);
+    }
+    println!("{}Readings provided by Universalis — https://universalis.com{}", st.dim, st.reset);
+}
+
+/// Print the Mass readings for a date given as YYYYMMDD.
+fn show_readings(ymd: &str) -> Result<(), String> {
+    let json = fetch_mass(ymd)?;
     let st = Styles::new();
 
-    // "Friday of week 27 ... or Saint Denis ... or Saint John Leonardi ..."
-    let day = html_to_plain(json["day"].as_str().unwrap_or(""), &st).replace('\n', " ");
-    let day = clean(&day);
-    let (main, optional) = split_day_title(&day);
+    let (main, optional) = day_title(&json);
     println!("{}{}{}", st.bold, main, st.reset);
     if !optional.is_empty() {
         let s = if optional.len() > 1 { "s" } else { "" };
@@ -175,40 +218,61 @@ fn show_readings(ymd: &str) -> Result<(), String> {
     }
     println!("{}{}{}", st.dim, json["date"].as_str().unwrap_or(""), st.reset);
 
-    // Readings in the order Universalis sends them (serde_json "preserve_order").
-    let mut found = false;
-    for (key, reading) in obj.iter().filter(|(k, _)| k.starts_with("Mass_")) {
-        let text = reading["text"].as_str().unwrap_or("");
-        let source = reading["source"].as_str().unwrap_or("");
-        if text.is_empty() && source.is_empty() {
-            continue;
-        }
-        found = true;
-        println!();
-        println!("{}── {} ──{}", st.bold, label_for(key), st.reset);
-        let source = spaced_source(&clean(&html_to_plain(source, &Styles::plain())));
-        if !source.is_empty() {
-            println!("{}{}{}", st.bold, source, st.reset);
-        }
-        let heading = clean(&html_to_plain(reading["heading"].as_str().unwrap_or(""), &Styles::plain()));
-        if !heading.is_empty() {
-            println!("{}{}{}", st.italic, heading, st.italic_off);
-        }
-        println!();
-        println!("{}", html_to_plain(text, &st));
-    }
-    if !found {
+    let readings = mass_readings(&json);
+    if readings.is_empty() {
         println!("\nNo readings were found for this day.");
     }
-
-    // Universalis' terms: show their copyright notice and point to them.
-    let copyright = clean(&html_to_plain(json["copyright"].as_str().unwrap_or(""), &Styles::plain()));
-    println!();
-    if !copyright.is_empty() {
-        println!("{}{}{}", st.dim, copyright, st.reset);
+    for (key, reading) in readings {
+        println!();
+        print_reading(key, reading, &st);
     }
-    println!("{}Readings provided by Universalis — https://universalis.com{}", st.dim, st.reset);
+    print_credit(&json, &st);
     Ok(())
+}
+
+/// One reading from the Mass of a random day in the last three years
+/// (covers all Sunday cycles A/B/C and weekday years I/II).
+fn show_random_reading() -> Result<(), String> {
+    let mut rng = seed();
+    let days_back = (next_rand(&mut rng) % (3 * 365)) as i64;
+    let date = chrono::Local::now().date_naive() - chrono::Duration::days(days_back);
+    let json = fetch_mass(&date.format("%Y%m%d").to_string())?;
+
+    // readings and Gospels with real text; skip the short Gospel acclamation
+    let readings: Vec<_> = mass_readings(&json)
+        .into_iter()
+        .filter(|(k, v)| !k.starts_with("Mass_GA") && v["text"].as_str().is_some_and(|t| !t.trim().is_empty()))
+        .collect();
+    if readings.is_empty() {
+        return Err("no readings found for the chosen day — try again".into());
+    }
+    let (key, reading) = readings[(next_rand(&mut rng) % readings.len() as u64) as usize];
+
+    let st = Styles::new();
+    print_reading(key, reading, &st);
+    let (main, _) = day_title(&json);
+    println!();
+    println!("{}From the Mass of {} · {}{}", st.dim, main, json["date"].as_str().unwrap_or(""), st.reset);
+    print_credit(&json, &st);
+    Ok(())
+}
+
+/// Tiny xorshift PRNG seeded from the clock — plenty for picking a reading.
+fn seed() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15);
+    (nanos ^ (std::process::id() as u64).rotate_left(32)) | 1
+}
+
+fn next_rand(state: &mut u64) -> u64 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *state = x;
+    x
 }
 
 // ---------------------------------------------------------------- helpers
@@ -415,7 +479,7 @@ fn decode_entities(s: &str) -> String {
 
 fn print_passage(p: &Passage) {
     let st = Styles::new();
-    println!("{}{} (KJV){}", st.bold, p.reference, st.reset);
+    println!("{}{} ({}){}", st.bold, p.reference, LOOKUP_TRANSLATION.1, st.reset);
     if p.verses.len() == 1 {
         println!("{}", p.verses[0].1);
     } else {
@@ -475,6 +539,15 @@ mod tests {
         let (main, alt) = split_day_title("28th Sunday in Ordinary Time");
         assert_eq!(main, "28th Sunday in Ordinary Time");
         assert!(alt.is_empty());
+    }
+
+    #[test]
+    fn random_is_in_range() {
+        let mut r = seed();
+        for _ in 0..1000 {
+            assert!(next_rand(&mut r) % 5 < 5);
+        }
+        assert_ne!(next_rand(&mut r), next_rand(&mut r));
     }
 
     #[test]
