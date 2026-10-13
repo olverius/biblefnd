@@ -108,25 +108,45 @@ async function fetchRandom() {
 // so requests are queued one at a time to keep callbacks from crossing.
 let jsonpQueue = Promise.resolve();
 
+function loadUniversalis(ymd, attempt) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    let finished = false;
+    const finish = (fn, arg) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      clearTimeout(afterLoad);
+      delete window.universalisCallback;
+      script.remove();
+      fn(arg);
+    };
+    let afterLoad;
+    const timer = setTimeout(
+      () => finish(reject, new Error("Universalis didn't answer in time (slow connection?).")),
+      20000
+    );
+    window.universalisCallback = (data) => finish(resolve, data);
+    // The script downloaded but never called us back: something emptied or blocked it.
+    script.onload = () => {
+      afterLoad = setTimeout(
+        () => finish(reject, new Error("The readings were downloaded but blocked from running — an ad/content blocker in this browser may be stopping universalis.com.")),
+        1500
+      );
+    };
+    script.onerror = () =>
+      finish(reject, new Error(navigator.onLine
+        ? "Couldn't load the readings from universalis.com (blocked or unreachable)."
+        : "You're offline."));
+    // cache-buster on retries so a bad cached copy isn't reused
+    script.src = `https://universalis.com/${ymd}/jsonpmass.js${attempt ? `?r=${Date.now()}` : ""}`;
+    document.head.append(script);
+  });
+}
+
 function fetchMassReadings(dateKey) {
   const ymd = dateKey.replaceAll("-", "");
-  const job = () =>
-    new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      const done = () => {
-        clearTimeout(timer);
-        delete window.universalisCallback;
-        script.remove();
-      };
-      const timer = setTimeout(() => { done(); reject(new Error("Universalis took too long to answer.")); }, 12000);
-      window.universalisCallback = (data) => { done(); resolve(data); };
-      script.onerror = () => {
-        done();
-        reject(new Error(navigator.onLine ? "Couldn't load the readings." : "You're offline."));
-      };
-      script.src = `https://universalis.com/${ymd}/jsonpmass.js`;
-      document.head.append(script);
-    });
+  const job = () => loadUniversalis(ymd, 0).catch(() => loadUniversalis(ymd, 1)); // one retry
   const p = jsonpQueue.then(job, job);
   jsonpQueue = p.catch(() => {});
   return p;

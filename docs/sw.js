@@ -2,7 +2,7 @@
 //  - the app's own files are served from cache (updated when VERSION changes)
 //  - readings and verses come from the network, falling back to the last
 //    cached copy when offline
-const VERSION = "biblefnd-v1";
+const VERSION = "biblefnd-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -40,6 +40,10 @@ self.addEventListener("fetch", (event) => {
 
   // Random verses must stay random, so never serve those from cache.
   if (url.pathname.includes("/random")) return;
+
+  // Let the browser load the Universalis readings script itself; passing an
+  // opaque cross-site script through the worker is fragile on some browsers.
+  if (url.hostname.endsWith("universalis.com")) return;
 
   // APIs: network first, remember the answer for offline use
   event.respondWith(
